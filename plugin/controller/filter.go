@@ -9,6 +9,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -34,6 +35,10 @@ var logPool = sync.Pool{New: func() interface{} {
 	return new(dnsLog)
 }}
 
+var msgPool = sync.Pool{New: func() interface{} {
+	return new(dns.Msg)
+}}
+
 type responseWriter struct {
 	dns.ResponseWriter
 	msg *dns.Msg
@@ -56,7 +61,9 @@ func (p *Filter) ServeDNS(ctx context.Context, w dns.ResponseWriter, req *dns.Ms
 		if log == nil {
 			return
 		}
+		logCh <- log
 	}()
+	atomic.AddUint32(&ReceiveCount, 1)
 
 	// 获取源IP地址
 	clientAddr := w.RemoteAddr().String()
@@ -97,7 +104,11 @@ func (p *Filter) ServeDNS(ctx context.Context, w dns.ResponseWriter, req *dns.Ms
 			log.Banned = 1
 			log.RelatedRuleSet = id
 			log.UseCache = 0
-			return dns.RcodeRefused, fmt.Errorf("banned by domain policy")
+			if fakeResponse {
+				return FakeResponse(w, req)
+			} else {
+				return dns.RcodeRefused, fmt.Errorf("banned by domain policy")
+			}
 		}
 	}
 
@@ -121,14 +132,23 @@ func (p *Filter) ServeDNS(ctx context.Context, w dns.ResponseWriter, req *dns.Ms
 				log.Banned = 1
 				log.RelatedRuleSet = "banned_dns_resolve_ip"
 				log.UseCache = 0
-				return dns.RcodeRefused, fmt.Errorf("banned by dns resolve ip")
+				if fakeResponse {
+					return FakeResponse(w, req)
+				} else {
+					return dns.RcodeRefused, fmt.Errorf("banned by dns resolve ip")
+				}
+
 			}
 		case *dns.AAAA:
 			if policy.BannedDnsResolveIps.Contain(answer.(*dns.AAAA).AAAA) {
 				log.Banned = 1
 				log.RelatedRuleSet = "banned_dns_resolve_ip"
 				log.UseCache = 0
-				return dns.RcodeRefused, fmt.Errorf("banned by dns resolve ip")
+				if fakeResponse {
+					return FakeResponse(w, req)
+				} else {
+					return dns.RcodeRefused, fmt.Errorf("banned by dns resolve ip")
+				}
 			}
 		}
 	}
@@ -148,4 +168,40 @@ func GetPolicyIdByIP(src net.IP) *rule.Policy {
 		}
 	}
 	return rule.Rules.DefaultPolicy
+}
+
+func FakeResponse(w dns.ResponseWriter, req *dns.Msg) (int, error) {
+	msg := msgPool.Get().(*dns.Msg)
+	defer msgPool.Put(msg)
+
+	msg.SetReply(req)
+	if req.RecursionDesired {
+		msg.RecursionAvailable = true
+	}
+
+	msg.Answer = []dns.RR{}
+	if req.Question[0].Qtype == dns.TypeA {
+		msg.Answer = append(msg.Answer, &dns.A{
+			Hdr: dns.RR_Header{
+				Name:   req.Question[0].Name,
+				Rrtype: req.Question[0].Qtype,
+				Class:  req.Question[0].Qclass,
+				Ttl:    30,
+			},
+			A: net.IPv4(127, 0, 0, 1),
+		})
+	} else if req.Question[0].Qtype == dns.TypeAAAA {
+		msg.Answer = append(msg.Answer, &dns.AAAA{
+			Hdr: dns.RR_Header{
+				Name:   req.Question[0].Name,
+				Rrtype: req.Question[0].Qtype,
+				Class:  req.Question[0].Qclass,
+				Ttl:    30,
+			},
+			AAAA: net.IPv6loopback,
+		})
+	}
+
+	w.WriteMsg(msg)
+	return dns.RcodeSuccess, nil
 }

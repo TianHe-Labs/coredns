@@ -26,7 +26,7 @@ func logHandler(kafkaAddresses []string, kafkaTopic string) {
 		for _, w := range writers {
 			err = w.Write(log)
 			if err != nil {
-				fmt.Printf("error in writing log: %v\n", err)
+				logger.Errorf("error in writing log: %v", err)
 			}
 		}
 		logPool.Put(log)

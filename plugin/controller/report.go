@@ -64,7 +64,7 @@ func Reporter() {
 		go func() {
 			err := Report()
 			if err != nil {
-				fmt.Println("error in report: ", err)
+				logger.Errorf("error in report: %v", err)
 			}
 		}()
 		time.Sleep(reportInterval)
@@ -111,11 +111,13 @@ func Report() (err error) {
 	if data.LastUpdateTimestamp == rule.Rules.LastUpdateTimestamp {
 		return nil
 	}
+	logger.Infof("Config Change! %d -> %d", rule.Rules.LastUpdateTimestamp, data.LastUpdateTimestamp)
 	ec.ErrCollector.Cache.PolicyError = []ec.Error{}
 	ec.ErrCollector.Cache.ConfigError = []ec.Error{}
 
 	UpdateConfig(data.Config)
 	if err = UpdateZone(data.Zone); err != nil {
+		logger.Errorf("error in parsing zone: %v", err)
 		ec.ErrCollector.New("config", fmt.Sprintf("error in parsing zone: %v", err))
 	}
 
@@ -225,18 +227,18 @@ func GetFile(t string, hash string) []byte {
 	for i := 0; i < 3; i++ {
 		resp, err := client.Get(apiUrl + "/api/dns/fetch/" + t + "/" + hash)
 		if err != nil {
-			fmt.Printf("error in getting file %s/%s: %v\n", t, hash, err)
+			logger.Errorf("error in getting file %s/%s: %v", t, hash, err)
 			continue
 		}
 		b, err := io.ReadAll(resp.Body)
 		if err != nil {
 			_ = resp.Body.Close()
-			fmt.Printf("error in reading file body %s/%s: %v\n", t, hash, err)
+			logger.Errorf("error in reading file body %s/%s: %v", t, hash, err)
 			continue
 		}
 		_ = resp.Body.Close()
 		if resp.StatusCode != 200 {
-			fmt.Printf("error in getting file with error statuscode %d: %s\n", resp.StatusCode, string(b))
+			logger.Errorf("error in getting file with error statuscode %d: %s", resp.StatusCode, string(b))
 			return nil
 		}
 		return b
