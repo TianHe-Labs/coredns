@@ -12,6 +12,8 @@ import (
 
 var kafkaAddresses []string
 var kafkaTopic = "fiber_dns_log"
+var fakeResponse bool
+
 var logger *zap.SugaredLogger
 
 func init() {
@@ -40,9 +42,8 @@ func setup(c *caddy.Controller) error {
 
 	logger = initLogger(false)
 
-	if len(kafkaAddresses) > 0 {
-		go logHandler(kafkaAddresses, kafkaTopic)
-	}
+	go logHandler(kafkaAddresses, kafkaTopic)
+
 	fmt.Printf(`
 [API URL] %s
 [KAFKA ADDRESSES] %s
@@ -60,11 +61,16 @@ func parseBlock(c *caddy.Controller) error {
 	switch c.Val() {
 	case "kafka_addresses":
 		kafkaAddresses = c.RemainingArgs()
+		if len(kafkaAddresses) == 1 && kafkaAddresses[0] == "" {
+			kafkaAddresses = []string{}
+		}
 	case "kafka_topic":
 		args := c.RemainingArgs()
-		if len(args) > 0 {
+		if len(args) > 0 && len(args[0]) > 0 {
 			kafkaTopic = args[0]
 		}
+	case "fake_response":
+		fakeResponse = true
 	}
 	return nil
 }
