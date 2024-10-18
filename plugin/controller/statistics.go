@@ -1,10 +1,20 @@
 package controller
 
 import (
-	"sync/atomic"
+	"time"
 )
 
 var ReceiveCount uint32
+var LastTenSecondReceiveCount uint32
+
+func monitor() {
+	for {
+		time.Sleep(time.Second * 10)
+		LastTenSecondReceiveCount = ReceiveCount
+		ReceiveCount = 0
+		logger.Infof("Last 10 seconds receive: %d,  log cache: %d", LastTenSecondReceiveCount, len(logCh))
+	}
+}
 
 type Statistics struct {
 	LastIntervalReceiveRequest int `json:"last_interval_receive_request"`
@@ -12,6 +22,6 @@ type Statistics struct {
 
 func ExportStatistics() Statistics {
 	return Statistics{
-		LastIntervalReceiveRequest: int(atomic.SwapUint32(&ReceiveCount, 0)),
+		LastIntervalReceiveRequest: int(LastTenSecondReceiveCount),
 	}
 }

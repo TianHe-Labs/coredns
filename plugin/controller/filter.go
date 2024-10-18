@@ -9,6 +9,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -56,7 +57,9 @@ func (p *Filter) ServeDNS(ctx context.Context, w dns.ResponseWriter, req *dns.Ms
 		if log == nil {
 			return
 		}
+		logCh <- log
 	}()
+	atomic.AddUint32(&ReceiveCount, 1)
 
 	// 获取源IP地址
 	clientAddr := w.RemoteAddr().String()

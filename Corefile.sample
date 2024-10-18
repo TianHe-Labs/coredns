@@ -3,6 +3,8 @@
     controller {$YDNS_API_URL}
     file
     forward . 223.5.5.5 {
+        kafka_addresses {$YDNS_KAFKA_ADDRESSES}
+        kafka_topic {$YDNS_KAFKA_TOPIC}
     }
     cache 300
     loop

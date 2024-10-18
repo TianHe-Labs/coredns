@@ -5,10 +5,14 @@ import (
 	"github.com/coredns/caddy"
 	"github.com/coredns/coredns/core/dnsserver"
 	"github.com/coredns/coredns/plugin"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"strings"
 )
 
 var kafkaAddresses []string
-var kafkaTopic string = "fiber_dns_log"
+var kafkaTopic = "fiber_dns_log"
+var logger *zap.SugaredLogger
 
 func init() {
 	plugin.Register("controller", setup)
@@ -33,11 +37,18 @@ func setup(c *caddy.Controller) error {
 			return plugin.Error("controller", fmt.Errorf("error in parsing controller block: %v", err))
 		}
 	}
+	logger = initLogger(false)
 
 	if len(kafkaAddresses) > 0 {
 		go logHandler(kafkaAddresses, kafkaTopic)
 	}
+	fmt.Printf(`
+[API URL] %s
+[KAFKA ADDRESSES] %s
+[KAFKA TOPIC] %s
+`, apiUrl, strings.Join(kafkaAddresses, ","), kafkaTopic)
 	go Reporter()
+	go monitor()
 	dnsserver.GetConfig(c).AddPlugin(func(next plugin.Handler) plugin.Handler {
 		return &Filter{Next: next}
 	})
@@ -55,4 +66,17 @@ func parseBlock(c *caddy.Controller) error {
 		}
 	}
 	return nil
+}
+
+func initLogger(debug bool) *zap.SugaredLogger {
+	cfg := zap.NewProductionConfig()
+	cfg.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
+	if debug {
+		cfg.Level.SetLevel(zapcore.DebugLevel)
+	} else {
+		cfg.Level.SetLevel(zapcore.InfoLevel)
+	}
+	logger, _ := cfg.Build()
+	defer logger.Sync() // flushes buffer, if any
+	return logger.Sugar()
 }
