@@ -1,11 +1,11 @@
 .:53 {
     errors
-    controller {$YDNS_API_URL}
-    file
-    forward . 223.5.5.5 {
-        kafka_addresses {$YDNS_KAFKA_ADDRESSES}
-        kafka_topic {$YDNS_KAFKA_TOPIC}
+    controller {$YDNS_API_URL} {
+      kafka_addresses {$YDNS_KAFKA_ADDRESSES}
+      kafka_topic {$YDNS_KAFKA_TOPIC}
     }
+    file
     cache 300
+    forward . 223.5.5.5
     loop
 }
