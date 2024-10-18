@@ -1,0 +1,9 @@
+.:53 {
+    errors
+    controller http://120.224.102.130:40136
+    file
+    forward . 223.5.5.5 {
+    }
+    cache 300
+    loop
+}

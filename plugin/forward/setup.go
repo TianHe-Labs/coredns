@@ -1,9 +1,9 @@
 package forward
 
 import (
-	"crypto/tls"
 	"errors"
 	"fmt"
+	"github.com/coredns/coredns/plugin/pkg/proxy"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -13,11 +13,7 @@ import (
 	"github.com/coredns/coredns/core/dnsserver"
 	"github.com/coredns/coredns/plugin"
 	"github.com/coredns/coredns/plugin/dnstap"
-	"github.com/coredns/coredns/plugin/pkg/parse"
-	"github.com/coredns/coredns/plugin/pkg/proxy"
 	pkgtls "github.com/coredns/coredns/plugin/pkg/tls"
-	"github.com/coredns/coredns/plugin/pkg/transport"
-
 	"github.com/miekg/dns"
 )
 
@@ -32,9 +28,9 @@ func setup(c *caddy.Controller) error {
 	}
 	for i := range fs {
 		f := fs[i]
-		if f.Len() > max {
-			return plugin.Error("forward", fmt.Errorf("more than %d TOs configured: %d", max, f.Len()))
-		}
+		//if f.Len() > max {
+		//	return plugin.Error("forward", fmt.Errorf("more than %d TOs configured: %d", max, f.Len()))
+		//}
 
 		if i == len(fs)-1 {
 			// last forward: point next to next plugin
@@ -51,9 +47,9 @@ func setup(c *caddy.Controller) error {
 			})
 		}
 
-		c.OnStartup(func() error {
-			return f.OnStartup()
-		})
+		//c.OnStartup(func() error {
+		//	return f.OnStartup()
+		//})
 		c.OnStartup(func() error {
 			if taph := dnsserver.GetConfig(c).Handler("dnstap"); taph != nil {
 				f.SetTapPlugin(taph.(*dnstap.Dnstap))
@@ -69,18 +65,35 @@ func setup(c *caddy.Controller) error {
 	return nil
 }
 
-// OnStartup starts a goroutines for all proxies.
-func (f *Forward) OnStartup() (err error) {
-	for _, p := range f.proxies {
-		p.Start(f.hcInterval)
-	}
-	return nil
-}
+//// OnStartup starts a goroutines for all proxies.
+//func (f *Forward) OnStartup() (err error) {
+//	for _, p := range f.proxies {
+//		p.Start(f.hcInterval)
+//	}
+//	return nil
+//}
+//
+//// OnShutdown stops all configured proxies.
+//func (f *Forward) OnShutdown() error {
+//	for _, p := range f.proxies {
+//		p.Stop()
+//	}
+//	return nil
+//}
 
-// OnShutdown stops all configured proxies.
 func (f *Forward) OnShutdown() error {
-	for _, p := range f.proxies {
-		p.Stop()
+	addrMap := make(map[string]struct{})
+	for _, s := range SpecifiedServers {
+		for _, p := range s.Servers {
+			if _, has := addrMap[p.Addr()]; !has {
+				p.Stop()
+			}
+		}
+	}
+	for _, p := range DefaultDnsServers {
+		if _, has := addrMap[p.Addr()]; !has {
+			p.Stop()
+		}
 	}
 	return nil
 }
@@ -119,23 +132,23 @@ func parseStanza(c *caddy.Controller) (*Forward, error) {
 		return f, c.ArgErr()
 	}
 
-	toHosts, err := parse.HostPortOrFile(to...)
-	if err != nil {
-		return f, err
-	}
-
-	transports := make([]string, len(toHosts))
-	allowedTrans := map[string]bool{"dns": true, "tls": true}
-	for i, host := range toHosts {
-		trans, h := parse.Transport(host)
-
-		if !allowedTrans[trans] {
-			return f, fmt.Errorf("'%s' is not supported as a destination protocol in forward: %s", trans, host)
-		}
-		p := proxy.NewProxy("forward", h, trans)
-		f.proxies = append(f.proxies, p)
-		transports[i] = trans
-	}
+	//toHosts, err := parse.HostPortOrFile(to...)
+	//if err != nil {
+	//	return f, err
+	//}
+	//
+	//transports := make([]string, len(toHosts))
+	//allowedTrans := map[string]bool{"dns": true, "tls": true}
+	//for i, host := range toHosts {
+	//	trans, h := parse.Transport(host)
+	//
+	//	if !allowedTrans[trans] {
+	//		return f, fmt.Errorf("'%s' is not supported as a destination protocol in forward: %s", trans, host)
+	//	}
+	//	p := proxy.NewProxy("forward", h, trans)
+	//	f.proxies = append(f.proxies, p)
+	//	transports[i] = trans
+	//}
 
 	for c.NextBlock() {
 		if err := parseBlock(c, f); err != nil {
@@ -147,23 +160,29 @@ func parseStanza(c *caddy.Controller) (*Forward, error) {
 		f.tlsConfig.ServerName = f.tlsServerName
 	}
 
-	// Initialize ClientSessionCache in tls.Config. This may speed up a TLS handshake
-	// in upcoming connections to the same TLS server.
-	f.tlsConfig.ClientSessionCache = tls.NewLRUClientSessionCache(len(f.proxies))
+	// 随便初始化一个
+	p := proxy.NewProxy("forward", "223.5.5.5:53", "dns")
+	p.SetExpire(f.expire)
+	p.Start(time.Millisecond * 5)
+	DefaultDnsServers = []*proxy.Proxy{p}
 
-	for i := range f.proxies {
-		// Only set this for proxies that need it.
-		if transports[i] == transport.TLS {
-			f.proxies[i].SetTLSConfig(f.tlsConfig)
-		}
-		f.proxies[i].SetExpire(f.expire)
-		f.proxies[i].GetHealthchecker().SetRecursionDesired(f.opts.HCRecursionDesired)
-		// when TLS is used, checks are set to tcp-tls
-		if f.opts.ForceTCP && transports[i] != transport.TLS {
-			f.proxies[i].GetHealthchecker().SetTCPTransport()
-		}
-		f.proxies[i].GetHealthchecker().SetDomain(f.opts.HCDomain)
-	}
+	//// Initialize ClientSessionCache in tls.Config. This may speed up a TLS handshake
+	//// in upcoming connections to the same TLS server.
+	//f.tlsConfig.ClientSessionCache = tls.NewLRUClientSessionCache(len(f.proxies))
+	//
+	//for i := range f.proxies {
+	//	// Only set this for proxies that need it.
+	//	if transports[i] == transport.TLS {
+	//		f.proxies[i].SetTLSConfig(f.tlsConfig)
+	//	}
+	//	f.proxies[i].SetExpire(f.expire)
+	//	f.proxies[i].GetHealthchecker().SetRecursionDesired(f.opts.HCRecursionDesired)
+	//	// when TLS is used, checks are set to tcp-tls
+	//	if f.opts.ForceTCP && transports[i] != transport.TLS {
+	//		f.proxies[i].GetHealthchecker().SetTCPTransport()
+	//	}
+	//	f.proxies[i].GetHealthchecker().SetDomain(f.opts.HCDomain)
+	//}
 
 	return f, nil
 }

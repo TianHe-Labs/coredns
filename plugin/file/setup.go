@@ -2,6 +2,7 @@ package file
 
 import (
 	"errors"
+	"github.com/miekg/dns"
 	"os"
 	"path/filepath"
 	"time"
@@ -15,13 +16,15 @@ import (
 
 func init() { plugin.Register("file", setup) }
 
+var f File
+
 func setup(c *caddy.Controller) error {
 	zones, err := fileParse(c)
 	if err != nil {
 		return plugin.Error("file", err)
 	}
 
-	f := File{Zones: zones}
+	f = File{Zones: zones}
 	// get the transfer plugin, so we can send notifies and send notifies on startup as well.
 	c.OnStartup(func() error {
 		t := dnsserver.GetConfig(c).Handler("transfer")
@@ -79,7 +82,7 @@ func fileParse(c *caddy.Controller) (Zones, error) {
 	for c.Next() {
 		// file db.file [zones...]
 		if !c.NextArg() {
-			return Zones{}, c.ArgErr()
+			return Zones{}, nil
 		}
 		fileName := c.Val()
 
@@ -150,4 +153,35 @@ func fileParse(c *caddy.Controller) (Zones, error) {
 		log.Warningf("Failed to open %q: trying again in %s", openErr, reload)
 	}
 	return Zones{Z: z, Names: names}, nil
+}
+
+type ZoneFile struct {
+	Origin   string
+	FilePath string
+}
+
+func ParseZoneFiles(files []*ZoneFile) error {
+	z := make(map[string]*Zone)
+	names := []string{}
+	for _, zf := range files {
+		zf.Origin = dns.Fqdn(zf.Origin)
+		reader, err := os.Open(filepath.Clean(zf.FilePath))
+		if err != nil {
+			return err
+		}
+
+		zone, err := Parse(reader, zf.Origin, zf.FilePath, 0)
+		if err != nil {
+			_ = reader.Close()
+			return err
+		}
+		zone.ReloadInterval = time.Minute
+		zone.Upstream = upstream.New()
+		z[zf.Origin] = zone
+		names = append(names, zf.Origin)
+
+		_ = reader.Close()
+	}
+	f.Zones = Zones{Z: z, Names: names}
+	return nil
 }
