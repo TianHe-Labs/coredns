@@ -3,6 +3,7 @@
     controller {$YDNS_API_URL} {
       kafka_addresses {$YDNS_KAFKA_ADDRESSES}
       kafka_topic {$YDNS_KAFKA_TOPIC}
+      {$YDNS_FAKE_RESPONSE}
     }
     file
     cache 300
