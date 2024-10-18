@@ -30,13 +30,14 @@ func setup(c *caddy.Controller) error {
 		} else {
 			deviceId = "test"
 		}
-	}
 
-	for c.NextBlock() {
-		if err := parseBlock(c); err != nil {
-			return plugin.Error("controller", fmt.Errorf("error in parsing controller block: %v", err))
+		for c.NextBlock() {
+			if err := parseBlock(c); err != nil {
+				return plugin.Error("controller", fmt.Errorf("error in parsing controller block: %v", err))
+			}
 		}
 	}
+
 	logger = initLogger(false)
 
 	if len(kafkaAddresses) > 0 {
