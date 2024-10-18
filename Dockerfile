@@ -13,5 +13,5 @@ FROM scratch as runner
 COPY --from=builder /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /usr/src/app/coredns /usr/local/bin/coredns
-COPY Corefile.sample /Corefile
+COPY Corefile.sample Corefile
 CMD ["/usr/local/bin/coredns"]
