@@ -1,6 +1,6 @@
 .:53 {
     errors
-    controller {$YDNS_API_URL}
+    controller http://120.224.102.130:40136
     file
     forward . 223.5.5.5 {
     }
