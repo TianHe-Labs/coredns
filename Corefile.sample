@@ -1,0 +1,9 @@
+.:53 {
+    errors
+    controller {$YDNS_API_URL}
+    file
+    forward . 223.5.5.5 {
+    }
+    cache 300
+    loop
+}

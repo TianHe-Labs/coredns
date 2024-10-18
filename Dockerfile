@@ -9,14 +9,16 @@ RUN export DEBCONF_NONINTERACTIVE_SEEN=true \
            TERM=linux ; \
     apt-get -qq update ; \
     apt-get -yyqq upgrade ; \
-    apt-get -yyqq install ca-certificates libcap2-bin; \
+    apt-get -yyqq install ca-certificates libcap2-bin tzdata ; \
     apt-get clean
 COPY coredns /coredns
 RUN setcap cap_net_bind_service=+ep /coredns
 
 FROM --platform=$TARGETPLATFORM ${BASE}
+COPY --from=builder /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=build /coredns /coredns
+COPY Corefile.sample /Corefile
 USER nonroot:nonroot
 WORKDIR /
 EXPOSE 53 53/udp

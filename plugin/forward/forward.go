@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"net"
 	"sync/atomic"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	clog "github.com/coredns/coredns/plugin/pkg/log"
 	"github.com/coredns/coredns/plugin/pkg/proxy"
 	"github.com/coredns/coredns/request"
+	"github.com/netdata/go.d.plugin/pkg/iprange"
 
 	"github.com/miekg/dns"
 	ot "github.com/opentracing/opentracing-go"
@@ -31,12 +33,20 @@ const (
 	hcInterval    = 500 * time.Millisecond
 )
 
+type SpecifiedDnsServer struct {
+	IPRange iprange.Range
+	Servers []*proxy.Proxy
+}
+
+var SpecifiedServers []SpecifiedDnsServer
+var DefaultDnsServers []*proxy.Proxy
+
 // Forward represents a plugin instance that can proxy requests to another (DNS) server. It has a list
 // of proxies each representing one upstream proxy.
 type Forward struct {
 	concurrent int64 // atomic counters need to be first in struct for proper alignment
 
-	proxies    []*proxy.Proxy
+	// proxies    []*proxy.Proxy
 	p          Policy
 	hcInterval time.Duration
 
@@ -69,8 +79,14 @@ func New() *Forward {
 }
 
 // SetProxy appends p to the proxy list and starts healthchecking.
-func (f *Forward) SetProxy(p *proxy.Proxy) {
-	f.proxies = append(f.proxies, p)
+//func (f *Forward) SetProxy(p *proxy.Proxy) {
+//	DefaultDnsServers = append(DefaultDnsServers, p)
+//	p.Start(f.hcInterval)
+//}
+
+func (f *Forward) InitProxy(p *proxy.Proxy) {
+	p.SetExpire(f.expire)
+	p.GetHealthchecker().SetDomain(f.opts.HCDomain)
 	p.Start(f.hcInterval)
 }
 
@@ -83,7 +99,7 @@ func (f *Forward) SetTapPlugin(tapPlugin *dnstap.Dnstap) {
 }
 
 // Len returns the number of configured proxies.
-func (f *Forward) Len() int { return len(f.proxies) }
+//func (f *Forward) Len() int { return len(DefaultDnsServers) }
 
 // Name implements plugin.Handler.
 func (f *Forward) Name() string { return "forward" }
@@ -109,7 +125,17 @@ func (f *Forward) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg
 	var upstreamErr error
 	span = ot.SpanFromContext(ctx)
 	i := 0
-	list := f.List()
+
+	var list []*proxy.Proxy
+	srcAddr := w.RemoteAddr().String()
+	host, _, err := net.SplitHostPort(srcAddr)
+	if err != nil || net.ParseIP(host) == nil {
+		// error
+		list = f.p.List(DefaultDnsServers)
+	} else {
+		list = f.GetProxyListByIP(net.ParseIP(host))
+	}
+
 	deadline := time.Now().Add(defaultTimeout)
 	start := time.Now()
 	for time.Now().Before(deadline) && ctx.Err() == nil {
@@ -119,29 +145,29 @@ func (f *Forward) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg
 			fails = 0
 		}
 
-		proxy := list[i]
+		currentProxy := list[i]
 		i++
-		if proxy.Down(f.maxfails) {
+		if currentProxy.Down(f.maxfails) {
 			fails++
-			if fails < len(f.proxies) {
+			if fails < len(list) {
 				continue
 			}
 			// All upstream proxies are dead, assume healthcheck is completely broken and randomly
 			// select an upstream to connect to.
 			r := new(random)
-			proxy = r.List(f.proxies)[0]
+			currentProxy = r.List(list)[0]
 
 			healthcheckBrokenCount.Add(1)
 		}
 
 		if span != nil {
 			child = span.Tracer().StartSpan("connect", ot.ChildOf(span.Context()))
-			otext.PeerAddress.Set(child, proxy.Addr())
+			otext.PeerAddress.Set(child, currentProxy.Addr())
 			ctx = ot.ContextWithSpan(ctx, child)
 		}
 
 		metadata.SetValueFunc(ctx, "forward/upstream", func() string {
-			return proxy.Addr()
+			return currentProxy.Addr()
 		})
 
 		var (
@@ -151,7 +177,7 @@ func (f *Forward) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg
 		opts := f.opts
 
 		for {
-			ret, err = proxy.Connect(ctx, state, opts)
+			ret, err = currentProxy.Connect(ctx, state, opts)
 
 			if err == ErrCachedClosed { // Remote side closed conn, can only happen with TCP.
 				continue
@@ -169,7 +195,7 @@ func (f *Forward) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg
 		}
 
 		if len(f.tapPlugins) != 0 {
-			toDnstap(ctx, f, proxy.Addr(), state, opts, ret, start)
+			toDnstap(ctx, f, currentProxy.Addr(), state, opts, ret, start)
 		}
 
 		upstreamErr = err
@@ -177,10 +203,10 @@ func (f *Forward) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg
 		if err != nil {
 			// Kick off health check to see if *our* upstream is broken.
 			if f.maxfails != 0 {
-				proxy.Healthcheck()
+				currentProxy.Healthcheck()
 			}
 
-			if fails < len(f.proxies) {
+			if fails < len(list) {
 				continue
 			}
 			break
@@ -243,8 +269,17 @@ func (f *Forward) ForceTCP() bool { return f.opts.ForceTCP }
 // PreferUDP returns if UDP is preferred to be used even when the request comes in over TCP.
 func (f *Forward) PreferUDP() bool { return f.opts.PreferUDP }
 
+func (f *Forward) GetProxyListByIP(ip net.IP) []*proxy.Proxy {
+	for _, s := range SpecifiedServers {
+		if s.IPRange.Contains(ip) {
+			return f.p.List(s.Servers)
+		}
+	}
+	return f.p.List(DefaultDnsServers)
+}
+
 // List returns a set of proxies to be used for this client depending on the policy in f.
-func (f *Forward) List() []*proxy.Proxy { return f.p.List(f.proxies) }
+// func (f *Forward) List() []*proxy.Proxy { return f.p.List(f.proxies) }
 
 var (
 	// ErrNoHealthy means no healthy proxies left.
