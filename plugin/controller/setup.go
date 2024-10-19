@@ -48,7 +48,8 @@ func setup(c *caddy.Controller) error {
 [API URL] %s
 [KAFKA ADDRESSES] %s
 [KAFKA TOPIC] %s
-`, apiUrl, strings.Join(kafkaAddresses, ","), kafkaTopic)
+[USE FAKE RESPONSE] %t
+`, apiUrl, strings.Join(kafkaAddresses, ","), kafkaTopic, fakeResponse)
 	go Reporter()
 	go monitor()
 	dnsserver.GetConfig(c).AddPlugin(func(next plugin.Handler) plugin.Handler {

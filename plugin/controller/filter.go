@@ -78,11 +78,10 @@ func (p *Filter) ServeDNS(ctx context.Context, w dns.ResponseWriter, req *dns.Ms
 	if len(req.Question) == 0 {
 		return dns.RcodeServerFailure, fmt.Errorf("no question in DNS request")
 	}
-	domainName := strings.ToLower(dns.Name(req.Question[0].Name).String())
 
 	log = logPool.Get().(*dnsLog)
 	log.RemoteIP = clientIP
-	log.Qname = domainName
+	log.Qname = strings.ToLower(strings.TrimRight(req.Question[0].Name, "."))
 	log.ReceiveTimestamp = receiveTimestamp
 	log.Qclass = req.Question[0].Qclass
 	log.Qtype = req.Question[0].Qtype
@@ -99,7 +98,7 @@ func (p *Filter) ServeDNS(ctx context.Context, w dns.ResponseWriter, req *dns.Ms
 	}
 
 	if policy != nil && req.Question[0].Qclass == 1 && (req.Question[0].Qtype == dns.TypeA || req.Question[0].Qtype == dns.TypeAAAA) {
-		operation, id := policy.Judge(domainName)
+		operation, id := policy.Judge(req.Question[0].Name)
 		switch operation {
 		case rule.OperationForbidden:
 			log.Banned = 1
