@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"github.com/coredns/coredns/plugin"
 	"github.com/coredns/coredns/plugin/controller/rule"
@@ -105,7 +106,7 @@ func (p *Filter) ServeDNS(ctx context.Context, w dns.ResponseWriter, req *dns.Ms
 			log.RelatedRuleSet = id
 			log.UseCache = 0
 			if fakeResponse {
-				return FakeResponse(w, req)
+				return FakeResponse(w, req, log)
 			} else {
 				return dns.RcodeRefused, fmt.Errorf("banned by domain policy")
 			}
@@ -117,8 +118,9 @@ func (p *Filter) ServeDNS(ctx context.Context, w dns.ResponseWriter, req *dns.Ms
 	}
 
 	// 调用下一个插件处理请求并获取响应
-	writer := responseWriter{ResponseWriter: w, msg: req}
+	writer := responseWriter{ResponseWriter: w}
 	code, err := plugin.NextOrFailure(p.Name(), p.Next, ctx, writer, req)
+	WriteResponseToLog(writer.msg, log)
 	if err != nil {
 		return code, err
 	}
@@ -133,7 +135,7 @@ func (p *Filter) ServeDNS(ctx context.Context, w dns.ResponseWriter, req *dns.Ms
 				log.RelatedRuleSet = "banned_dns_resolve_ip"
 				log.UseCache = 0
 				if fakeResponse {
-					return FakeResponse(w, req)
+					return FakeResponse(w, req, log)
 				} else {
 					return dns.RcodeRefused, fmt.Errorf("banned by dns resolve ip")
 				}
@@ -145,13 +147,14 @@ func (p *Filter) ServeDNS(ctx context.Context, w dns.ResponseWriter, req *dns.Ms
 				log.RelatedRuleSet = "banned_dns_resolve_ip"
 				log.UseCache = 0
 				if fakeResponse {
-					return FakeResponse(w, req)
+					return FakeResponse(w, req, log)
 				} else {
 					return dns.RcodeRefused, fmt.Errorf("banned by dns resolve ip")
 				}
 			}
 		}
 	}
+
 	_ = w.WriteMsg(writer.msg)
 	return code, err
 }
@@ -170,7 +173,7 @@ func GetPolicyIdByIP(src net.IP) *rule.Policy {
 	return rule.Rules.DefaultPolicy
 }
 
-func FakeResponse(w dns.ResponseWriter, req *dns.Msg) (int, error) {
+func FakeResponse(w dns.ResponseWriter, req *dns.Msg, log *dnsLog) (int, error) {
 	msg := msgPool.Get().(*dns.Msg)
 	defer msgPool.Put(msg)
 
@@ -202,6 +205,20 @@ func FakeResponse(w dns.ResponseWriter, req *dns.Msg) (int, error) {
 		})
 	}
 
+	b, err := msg.Pack()
+	if err == nil {
+		log.Response = base64.StdEncoding.EncodeToString(b)
+	}
+
 	w.WriteMsg(msg)
 	return dns.RcodeSuccess, nil
+}
+
+func WriteResponseToLog(msg *dns.Msg, log *dnsLog) {
+	if msg != nil {
+		b, err := msg.Pack()
+		if err == nil {
+			log.Response = base64.StdEncoding.EncodeToString(b)
+		}
+	}
 }

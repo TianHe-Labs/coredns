@@ -12,7 +12,7 @@ import (
 
 var kafkaAddresses []string
 var kafkaTopic = "fiber_dns_log"
-var fakeResponse bool
+var fakeResponse bool = true
 
 var logger *zap.SugaredLogger
 
@@ -69,8 +69,8 @@ func parseBlock(c *caddy.Controller) error {
 		if len(args) > 0 && len(args[0]) > 0 {
 			kafkaTopic = args[0]
 		}
-	case "fake_response":
-		fakeResponse = true
+	case "refuse_response":
+		fakeResponse = false
 	}
 	return nil
 }
