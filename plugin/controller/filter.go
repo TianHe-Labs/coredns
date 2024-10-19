@@ -127,35 +127,40 @@ func (p *Filter) ServeDNS(ctx context.Context, w dns.ResponseWriter, req *dns.Ms
 	if code != dns.RcodeSuccess {
 		return code, err
 	}
-	for _, answer := range writer.msg.Answer {
-		switch answer.(type) {
-		case *dns.A:
-			if policy.BannedDnsResolveIps.Contain(answer.(*dns.A).A) {
-				log.Banned = 1
-				log.RelatedRuleSet = "banned_dns_resolve_ip"
-				log.UseCache = 0
-				if fakeResponse {
-					return FakeResponse(w, req, log)
-				} else {
-					return dns.RcodeRefused, fmt.Errorf("banned by dns resolve ip")
-				}
+	if writer.msg != nil && policy != nil && policy.BannedDnsResolveIps != nil && policy.BannedDnsResolveIps.Size() == 0 {
+		for _, answer := range writer.msg.Answer {
+			switch answer.(type) {
+			case *dns.A:
+				if policy.BannedDnsResolveIps.Contain(answer.(*dns.A).A) {
+					log.Banned = 1
+					log.RelatedRuleSet = "banned_dns_resolve_ip"
+					log.UseCache = 0
+					if fakeResponse {
+						return FakeResponse(w, req, log)
+					} else {
+						return dns.RcodeRefused, fmt.Errorf("banned by dns resolve ip")
+					}
 
-			}
-		case *dns.AAAA:
-			if policy.BannedDnsResolveIps.Contain(answer.(*dns.AAAA).AAAA) {
-				log.Banned = 1
-				log.RelatedRuleSet = "banned_dns_resolve_ip"
-				log.UseCache = 0
-				if fakeResponse {
-					return FakeResponse(w, req, log)
-				} else {
-					return dns.RcodeRefused, fmt.Errorf("banned by dns resolve ip")
+				}
+			case *dns.AAAA:
+				if policy.BannedDnsResolveIps.Contain(answer.(*dns.AAAA).AAAA) {
+					log.Banned = 1
+					log.RelatedRuleSet = "banned_dns_resolve_ip"
+					log.UseCache = 0
+					if fakeResponse {
+						return FakeResponse(w, req, log)
+					} else {
+						return dns.RcodeRefused, fmt.Errorf("banned by dns resolve ip")
+					}
 				}
 			}
 		}
 	}
 
-	_ = w.WriteMsg(writer.msg)
+	if writer.msg != nil {
+		_ = w.WriteMsg(writer.msg)
+	}
+
 	return code, err
 }
 
