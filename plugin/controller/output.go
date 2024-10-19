@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-var logCh = make(chan *dnsLog, 10000)
+var logCh = make(chan *dnsLog, 50000)
 
 type logWriter interface {
 	Write(log *dnsLog) error
