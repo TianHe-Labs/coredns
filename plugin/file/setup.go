@@ -16,7 +16,7 @@ import (
 
 func init() { plugin.Register("file", setup) }
 
-var f File
+var currentZones Zones
 
 func setup(c *caddy.Controller) error {
 	zones, err := fileParse(c)
@@ -24,7 +24,7 @@ func setup(c *caddy.Controller) error {
 		return plugin.Error("file", err)
 	}
 
-	f = File{Zones: zones}
+	f := File{Zones: zones}
 	// get the transfer plugin, so we can send notifies and send notifies on startup as well.
 	c.OnStartup(func() error {
 		t := dnsserver.GetConfig(c).Handler("transfer")
@@ -182,6 +182,6 @@ func ParseZoneFiles(files []*ZoneFile) error {
 
 		_ = reader.Close()
 	}
-	f.Zones = Zones{Z: z, Names: names}
+	currentZones = Zones{Z: z, Names: names}
 	return nil
 }

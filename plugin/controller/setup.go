@@ -12,7 +12,7 @@ import (
 
 var kafkaAddresses []string
 var kafkaTopic = "fiber_dns_log"
-var fakeResponse bool
+var fakeResponse bool = true
 
 var logger *zap.SugaredLogger
 
@@ -48,7 +48,8 @@ func setup(c *caddy.Controller) error {
 [API URL] %s
 [KAFKA ADDRESSES] %s
 [KAFKA TOPIC] %s
-`, apiUrl, strings.Join(kafkaAddresses, ","), kafkaTopic)
+[USE FAKE RESPONSE] %t
+`, apiUrl, strings.Join(kafkaAddresses, ","), kafkaTopic, fakeResponse)
 	go Reporter()
 	go monitor()
 	dnsserver.GetConfig(c).AddPlugin(func(next plugin.Handler) plugin.Handler {
@@ -69,8 +70,8 @@ func parseBlock(c *caddy.Controller) error {
 		if len(args) > 0 && len(args[0]) > 0 {
 			kafkaTopic = args[0]
 		}
-	case "fake_response":
-		fakeResponse = true
+	case "refuse_response":
+		fakeResponse = false
 	}
 	return nil
 }
