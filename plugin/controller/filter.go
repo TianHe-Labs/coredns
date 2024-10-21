@@ -45,7 +45,7 @@ type responseWriter struct {
 	msg *dns.Msg
 }
 
-func (w responseWriter) WriteMsg(res *dns.Msg) error {
+func (w *responseWriter) WriteMsg(res *dns.Msg) error {
 	w.msg = res
 	return nil
 }
@@ -117,7 +117,7 @@ func (p *Filter) ServeDNS(ctx context.Context, w dns.ResponseWriter, req *dns.Ms
 	}
 
 	// 调用下一个插件处理请求并获取响应
-	writer := responseWriter{ResponseWriter: w}
+	writer := &responseWriter{ResponseWriter: w}
 	code, err := plugin.NextOrFailure(p.Name(), p.Next, ctx, writer, req)
 	WriteResponseToLog(writer.msg, log)
 	if err != nil {
