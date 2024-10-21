@@ -116,10 +116,6 @@ func (p *Filter) ServeDNS(ctx context.Context, w dns.ResponseWriter, req *dns.Ms
 		}
 	}
 
-	if policy == nil || policy.BannedDnsResolveIps == nil || policy.BannedDnsResolveIps.Size() == 0 {
-		return plugin.NextOrFailure(p.Name(), p.Next, ctx, w, req)
-	}
-
 	// 调用下一个插件处理请求并获取响应
 	writer := responseWriter{ResponseWriter: w}
 	code, err := plugin.NextOrFailure(p.Name(), p.Next, ctx, writer, req)
@@ -130,6 +126,7 @@ func (p *Filter) ServeDNS(ctx context.Context, w dns.ResponseWriter, req *dns.Ms
 	if code != dns.RcodeSuccess {
 		return code, err
 	}
+
 	if writer.msg != nil && policy != nil && policy.BannedDnsResolveIps != nil && policy.BannedDnsResolveIps.Size() == 0 {
 		for _, answer := range writer.msg.Answer {
 			switch answer.(type) {
